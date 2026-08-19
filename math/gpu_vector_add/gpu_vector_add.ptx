@@ -1,0 +1,84 @@
+/*
+ * math/gpu_vector_add.ptx
+ *
+ * This kernel performs element-wise addition: C = A + B.
+ * Optimized with a Grid-Stride Loop to handle arrays larger than the grid size.
+ */
+
+.version 7.0
+.target sm_61
+.address_size 64
+
+.visible .entry gpu_vector_add(
+    .param .u64 a, 
+    .param .u64 b, 
+    .param .u64 c, 
+    .param .u64 n
+) {
+    // --- Register Declarations ---
+    .reg .b64 %ra, %rb, %rc, %rn;           // Base pointers and array size
+    .reg .b32 %idx32, %stride32;            // 32-bit indexing components
+    .reg .b64 %idx, %stride, %off;          // 64-bit indexing for pointer math
+    .reg .b32 %nblocks, %blockDim, %blockIdx, %threadIdx;
+    .reg .f32 %fa, %fb, %fc;                // Floating point registers for data
+    .reg .pred %p;                          // Predicate for loop/bounds control
+
+    // 1. Load parameters from the host (ABI-compliant parameter space)
+    ld.param.u64 %ra, [a];
+    ld.param.u64 %rb, [b];
+    ld.param.u64 %rc, [c];
+    ld.param.u64 %rn, [n];
+
+    // 2. Compute the initial global thread index
+    // Formula: idx = (blockIdx.x * blockDim.x) + threadIdx.x
+    mov.u32 %blockIdx, %ctaid.x;
+    mov.u32 %blockDim, %ntid.x;
+    mov.u32 %threadIdx, %tid.x;
+    mul.lo.u32 %idx32, %blockIdx, %blockDim;
+    add.u32 %idx32, %idx32, %threadIdx;
+    cvt.u64.u32 %idx, %idx32;               // Promote to 64-bit for safe address math
+
+    // 3. Compute the Grid Stride
+    // The stride is the total number of threads in the grid.
+    // Threads will jump by this amount to process the next chunk of data.
+    mov.u32 %nblocks, %nctaid.x;
+    mul.lo.u32 %stride32, %nblocks, %blockDim;
+    cvt.u64.u32 %stride, %stride32;
+
+LOOP:
+    // 4. Bounds Check
+    // If the current index exceeds the total number of elements, we're done.
+    setp.ge.u64 %p, %idx, %rn;
+    @%p bra END;
+
+    // 5. Calculate memory offset
+    // Each float is 4 bytes, so byte_offset = element_index * 4
+    mul.lo.u64 %off, %idx, 4;
+
+    // 6. Memory Access and Computation
+    // We create temporary addresses to keep the original base pointers (%ra, %rb, %rc)
+    // intact for the next iteration of the loop.
+    .reg .u64 %curr_a, %curr_b, %curr_c;
+    add.u64 %curr_a, %ra, %off;
+    add.u64 %curr_b, %rb, %off;
+    add.u64 %curr_c, %rc, %off;
+
+    // Load values from Global Memory
+    ld.global.f32 %fa, [%curr_a];
+    ld.global.f32 %fb, [%curr_b];
+    
+    // Perform the actual addition
+    add.f32 %fc, %fa, %fb;
+    
+    // Store result back to Global Memory
+    st.global.f32 [%curr_c], %fc;
+
+    // 7. Grid-Stride Increment
+    // Move the index forward by the total grid size to process the next element.
+    add.u64 %idx, %idx, %stride;
+    bra LOOP;
+
+END:
+    ret;
+}
+

@@ -1,0 +1,24 @@
+# ==============================================================================
+# LOW-LEVEL FRAMEWORK: .GITIGNORE (CUDA & x86_64 Assembly)
+# ==============================================================================
+
+# 1. Toolchain Build Artifacts (Gegenereerd door as, ld en ptxas)
+*.o
+*.obj
+*.cubin
+*.ptx.res
+*.lst
+
+# 2. Centralized Output Directories
+# We negeren alle gecompileerde binaries en build-mappen overal in de boom
+bin/
+build/
+
+# 3. Framework Logging (Afkomstig van de template_branch verkeersregelaars)
+*.log
+
+# 4. System & Editor Overrides
+.DS_Store
+Thumbs.db
+*~
+*.swp

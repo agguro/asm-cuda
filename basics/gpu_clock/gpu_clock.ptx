@@ -1,3 +1,25 @@
+// ==============================================================================
+// File:        gpu_clock.ptx
+// Author:      agguro
+// Date:        August 20, 2026 
+// Description: CUDA PTX kernel for hardware performance cycle counter capture.
+// Architecture: NVIDIA PTX sm_61
+//
+// Copyright 2026 agguro
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//        http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// ==============================================================================
+
 .version 6.5
 .target sm_61
 .address_size 64
@@ -10,26 +32,35 @@
     .param .u64 c,
     .param .u32 n
 ) {
-    .reg .u32 %t1, %t2;
-    .reg .u64 %rd1;
-    .reg .f32 %f1, %f2;
+    /* --- Register Declarations --- */
+    .reg .u32     %t1;
+    .reg .u32     %t2;
+    .reg .b64     %rd1;
+    .reg .f32     %f1;
+    .reg .f32     %f2;
 
-    // 1. Capture start clock cycle
-    mov.u32 %t1, %clock;
+    /* --- STEP 1: Capture start clock cycle --- *
+     * Read the high-resolution hardware performance clock. */
+    mov.u32       %t1, %clock;
 
-    // 2. Load destination pointer 'c'
-    ld.param.u64 %rd1, [c];
+    /* --- STEP 2: Load destination pointer 'c' --- *
+     * Fetch the 64-bit base memory address for output storage. */
+    ld.param.u64  %rd1, [c];
 
-    // 3. Dummy work: capture end clock cycle
-    mov.u32 %t2, %clock;
+    /* --- STEP 3: Dummy work: capture end clock cycle --- *
+     * Read the hardware clock again to measure execution interval. */
+    mov.u32       %t2, %clock;
 
-    // 4. Convert Integer Clocks to Float for your printf
+    /* --- STEP 4: Convert Integer Clocks to Float --- *
+     * Convert 32-bit integer cycle counts to single-precision floating-point format. */
     cvt.rn.f32.u32 %f1, %t1;
     cvt.rn.f32.u32 %f2, %t2;
 
-    // 5. Store to memory (using global state space)
+    /* --- STEP 5: Store results to memory --- *
+     * Write start and end clock values sequentially into global VRAM. */
     st.global.f32 [%rd1], %f1;
     st.global.f32 [%rd1+4], %f2;
 
+    /* --- STEP 6: Terminate thread execution --- */
     ret;
 }

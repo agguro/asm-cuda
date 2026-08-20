@@ -32,6 +32,8 @@
 .target sm_61
 .address_size 64
 
+.file 1 "complex_quadratic_solver.ptx"
+
 .visible .entry quadratic_solver(
     .param .u64 in_ptr,   /* Pointer to input array of complex coefficients */
     .param .u64 out_ptr,  /* Pointer to output array for two complex roots */

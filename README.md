@@ -13,11 +13,13 @@ The repository is organized by functional categories, where each kernel resides 
     │   ├── gpu_pointertest/    # Pointer arithmetic and memory validation
     │   ├── gpu_thread_write/   # Concurrent thread writing tests
     │   └── gpu_write/          # Basic global memory write operations
+    ├── docs/                   # Documentation and reference materials
     ├── finance/                # Financial and stochastic simulation kernels
-    │   └── ticker_gbm/         # Geometric Brownian Motion (Monte Carlo path simulation)
+    │   └── gbm_monte_carlo/    # Geometric Brownian Motion (Monte Carlo path simulation)
     ├── include/
     │   └── shared_kernel.mk    # Centralized, autonomous build template for all kernels
     ├── math/                   # Mathematical and vector operations
+    │   ├── complex_quadratic_solver/ # Direct analytic solver for complex quadratic coefficients
     │   └── gpu_vector_add/     # Parallel vector addition
     └── LICENSE
 

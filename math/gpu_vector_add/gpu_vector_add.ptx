@@ -31,6 +31,8 @@
 .target sm_61
 .address_size 64
 
+.file 1 "gpu_vector_add.ptx"
+
 .visible .entry gpu_vector_add(
     .param .u64 a,
     .param .u64 b,

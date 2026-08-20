@@ -1,7 +1,24 @@
-/*
- * kernel.ptx
- * get the thread ID from the running thread and return it to the cpu
-  */
+// ==============================================================================
+// File:        gpu_hello.ptx
+// Author:      agguro
+// Date:        August 20, 2026 
+// Description: CUDA PTX kernel to retrieve thread ID and return it to host memory.
+// Architecture: NVIDIA PTX sm_61
+//
+// Copyright 2026 agguro
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//        http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// ==============================================================================
 
 .version 6.5
 .target sm_61
@@ -9,25 +26,36 @@
 
 .file 1 "gpu_hello.ptx"
 
-.visible .entry gpu_hello(.param .u64 result_ptr) {
-    .reg .u64 %base;
-    .reg .u32 %t;
-    .reg .u64 %off;
-    .reg .u64 %dest;
+.visible .entry gpu_hello(
+    .param .u64 result_ptr
+) {
+    /* --- Register Declarations --- */
+    .reg .u64     %base;
+    .reg .u32     %t;
+    .reg .u64     %off;
+    .reg .u64     %dest;
 
-    // result_ptr is the address in the parameter buffer.
-    // We load the actual GPU address (d_ptr) from it.
-    ld.param.u64 %base, [result_ptr];
-     
-    mov.u32 %t, %tid.x;
-     
-    // Calculate offset: tid * 4 bytes
-    mul.wide.u32 %off, %t, 4;
+    /* --- STEP 1: Load base address from parameter buffer --- *
+     * result_ptr is the address in the parameter space.        *
+     * We load the actual 64-bit GPU global memory address from it. */
+    ld.param.u64  %base, [result_ptr];
 
-    add.u64 %dest, %base, %off;
+    /* --- STEP 2: Capture local thread index --- *
+     * Read the thread identifier along the X dimension (%tid.x). */
+    mov.u32       %t, %tid.x;
 
-    // Write the thread ID to the buffer
+    /* --- STEP 3: Calculate byte offset --- *
+     * Compute offset = thread_id * sizeof(uint32) -> tid * 4 bytes. */
+    mul.wide.u32  %off, %t, 4;
+
+    /* --- STEP 4: Compute destination address --- *
+     * Add the calculated byte offset to the base memory pointer. */
+    add.u64       %dest, %base, %off;
+
+    /* --- STEP 5: Store thread ID to global memory --- *
+     * Write the 32-bit thread ID directly into the global VRAM buffer. */
     st.global.u32 [%dest], %t;
 
+    /* --- STEP 6: Terminate thread execution --- */
     ret;
 }

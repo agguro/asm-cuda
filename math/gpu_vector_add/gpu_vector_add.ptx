@@ -1,84 +1,118 @@
-/*
- * math/gpu_vector_add.ptx
- *
- * This kernel performs element-wise addition: C = A + B.
- * Optimized with a Grid-Stride Loop to handle arrays larger than the grid size.
- */
+// ==============================================================================
+// File:        gpu_vector_add.ptx
+// Author:      agguro
+// Date:        August 20, 2026 
+// Description: CUDA PTX kernel for element-wise vector addition: C = A + B.
+//              Optimized with a Grid-Stride Loop to handle arrays larger than the grid size.
+// Architecture: NVIDIA PTX sm_61
+//
+// Note on Precision: 
+// Please note that the current floating-point precision on this GPU kernel does not
+// yet match full CPU double-precision standards. This will be addressed in an upcoming
+// update—though since time is limited, be sure to check back here regularly for the latest
+// revisions.
+//
+// Copyright 2026 agguro
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//        http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// ==============================================================================
 
 .version 7.0
 .target sm_61
 .address_size 64
 
 .visible .entry gpu_vector_add(
-    .param .u64 a, 
-    .param .u64 b, 
-    .param .u64 c, 
+    .param .u64 a,
+    .param .u64 b,
+    .param .u64 c,
     .param .u64 n
 ) {
-    // --- Register Declarations ---
-    .reg .b64 %ra, %rb, %rc, %rn;           // Base pointers and array size
-    .reg .b32 %idx32, %stride32;            // 32-bit indexing components
-    .reg .b64 %idx, %stride, %off;          // 64-bit indexing for pointer math
-    .reg .b32 %nblocks, %blockDim, %blockIdx, %threadIdx;
-    .reg .f32 %fa, %fb, %fc;                // Floating point registers for data
-    .reg .pred %p;                          // Predicate for loop/bounds control
+    /* --- Register Declarations --- */
+    .reg .b64 %ra;
+    .reg .b64 %rb;
+    .reg .b64 %rc;
+    .reg .b64 %rn;
+    .reg .b32 %idx32;
+    .reg .b32 %stride32;
+    .reg .b64 %idx;
+    .reg .b64 %stride;
+    .reg .b64 %off;
+    .reg .b32 %nblocks;
+    .reg .b32 %blockDim;
+    .reg .b32 %blockIdx;
+    .reg .b32 %threadIdx;
+    .reg .f32 %fa;
+    .reg .f32 %fb;
+    .reg .f32 %fc;
+    .reg .pred %p;
 
-    // 1. Load parameters from the host (ABI-compliant parameter space)
+    /* --- STEP 1: Load parameters from the host (ABI-compliant parameter space) --- */
     ld.param.u64 %ra, [a];
     ld.param.u64 %rb, [b];
     ld.param.u64 %rc, [c];
     ld.param.u64 %rn, [n];
 
-    // 2. Compute the initial global thread index
-    // Formula: idx = (blockIdx.x * blockDim.x) + threadIdx.x
+    /* --- STEP 2: Compute the initial global thread index --- *
+     * Formula: idx32 = (blockIdx.x * blockDim.x) + threadIdx.x *
+     * Note: Promoted to 64-bit for safe 64-bit pointer math.   */
     mov.u32 %blockIdx, %ctaid.x;
     mov.u32 %blockDim, %ntid.x;
     mov.u32 %threadIdx, %tid.x;
     mul.lo.u32 %idx32, %blockIdx, %blockDim;
     add.u32 %idx32, %idx32, %threadIdx;
-    cvt.u64.u32 %idx, %idx32;               // Promote to 64-bit for safe address math
+    cvt.u64.u32 %idx, %idx32;
 
-    // 3. Compute the Grid Stride
-    // The stride is the total number of threads in the grid.
-    // Threads will jump by this amount to process the next chunk of data.
+    /* --- STEP 3: Compute the Grid Stride --- *
+     * Formula: stride32 = nctaid.x * blockDim.x *
+     * Threads will jump by this amount to process the next chunk of data. */
     mov.u32 %nblocks, %nctaid.x;
     mul.lo.u32 %stride32, %nblocks, %blockDim;
     cvt.u64.u32 %stride, %stride32;
 
 LOOP:
-    // 4. Bounds Check
-    // If the current index exceeds the total number of elements, we're done.
+    /* --- STEP 4: Bounds Check --- *
+     * If current index >= total elements (n), exit loop. */
     setp.ge.u64 %p, %idx, %rn;
     @%p bra END;
 
-    // 5. Calculate memory offset
-    // Each float is 4 bytes, so byte_offset = element_index * 4
+    /* --- STEP 5: Calculate Memory Offset --- *
+     * Formula: byte_offset = element_index * sizeof(float) -> idx * 4 */
     mul.lo.u64 %off, %idx, 4;
 
-    // 6. Memory Access and Computation
-    // We create temporary addresses to keep the original base pointers (%ra, %rb, %rc)
-    // intact for the next iteration of the loop.
-    .reg .u64 %curr_a, %curr_b, %curr_c;
+    /* --- STEP 6: Memory Access and Computation --- *
+     * Create temporary addresses to keep original base pointers (%ra, %rb, %rc) intact. */
+    .reg .u64 %curr_a;
+    .reg .u64 %curr_b;
+    .reg .u64 %curr_c;
     add.u64 %curr_a, %ra, %off;
     add.u64 %curr_b, %rb, %off;
     add.u64 %curr_c, %rc, %off;
 
-    // Load values from Global Memory
+    /* Load values from Global Memory */
     ld.global.f32 %fa, [%curr_a];
     ld.global.f32 %fb, [%curr_b];
-    
-    // Perform the actual addition
+
+    /* Perform the actual addition: fc = fa + fb */
     add.f32 %fc, %fa, %fb;
-    
-    // Store result back to Global Memory
+
+    /* Store result back to Global Memory */
     st.global.f32 [%curr_c], %fc;
 
-    // 7. Grid-Stride Increment
-    // Move the index forward by the total grid size to process the next element.
+    /* --- STEP 7: Grid-Stride Increment --- *
+     * Move index forward by the total grid size for the next element. */
     add.u64 %idx, %idx, %stride;
     bra LOOP;
 
 END:
     ret;
 }
-

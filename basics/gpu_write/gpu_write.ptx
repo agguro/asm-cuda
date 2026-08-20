@@ -1,3 +1,25 @@
+// ==============================================================================
+// File:        gpu_thread_write.ptx
+// Author:      agguro
+// Date:        August 20, 2026 
+// Description: CUDA PTX kernel to calculate global thread index and write it as float.
+// Architecture: NVIDIA PTX sm_61
+//
+// Copyright 2026 agguro
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//        http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// ==============================================================================
+
 .version 6.5
 .target sm_61
 .address_size 64
@@ -10,33 +32,37 @@
     .param .u64 c,
     .param .u32 n
 ) {
-    .reg .u32 %r<4>;
-    .reg .u64 %rd<4>;
-    .reg .f32 %f1;
+    /* --- Register Declarations --- */
+    .reg .u32     %r<4>;
+    .reg .u64     %rd<4>;
+    .reg .f32     %f1;
 
-    // 1. Get Global ID: i = blockIdx.x * blockDim.x + threadIdx.x
-    mov.u32 %r0, %ctaid.x;
+    /* --- STEP 1: Compute Global Thread Index --- *
+     * Formula: i = (blockIdx.x * blockDim.x) + threadIdx.x *
+     * Using mad.lo.u32 for efficient multiply-add calculation. */
+    mov.u32       %r0, %ctaid.x;
+    mov.u32       %r1, %ntid.x;
+    mov.u32       %r2, %tid.x;
+    mad.lo.u32    %r3, %r0, %r1, %r2;
 
-    mov.u32 %r1, %ntid.x;
+    /* --- STEP 2: Load destination pointer 'c' --- *
+     * Fetch the 64-bit base memory address from the parameter space. */
+    ld.param.u64  %rd1, [c];
 
-    mov.u32 %r2, %tid.x;
+    /* --- STEP 3: Calculate memory byte offset --- *
+     * Compute offset = index * sizeof(float) -> index * 4 bytes. *
+     * Add offset to the base pointer to get target memory address. */
+    mul.wide.u32  %rd2, %r3, 4;
+    add.u64       %rd3, %rd1, %rd2;
 
-    mad.lo.u32 %r3, %r0, %r1, %r2;
-
-    // 2. Load destination pointer 'c'
-    ld.param.u64 %rd1, [c];
-
-    // 3. Calculate memory offset (index * 4 bytes)
-    mul.wide.u32 %rd2, %r3, 4;
-
-    add.u64 %rd3, %rd1, %rd2;
-
-    // 4. Convert integer index to float (e.g., 5 -> 5.0)
+    /* --- STEP 4: Convert integer index to float --- *
+     * Cast the 32-bit integer thread index to a single-precision float (e.g., 5 -> 5.0). */
     cvt.rn.f32.u32 %f1, %r3;
 
-    // 5. Write to memory
+    /* --- STEP 5: Write float value to global VRAM --- *
+     * Store the converted thread index directly into global memory. */
     st.global.f32 [%rd3], %f1;
 
+    /* --- STEP 6: Terminate thread execution --- */
     ret;
 }
-
